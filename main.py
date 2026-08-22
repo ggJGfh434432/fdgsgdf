@@ -425,11 +425,11 @@ def loader_auth(req: LoaderAuthRequest, db: Session = Depends(get_db)):
             return {"access": False, "error": "Ошибка формата подписки"}
             
     if req.hwid:
-        if not user.hwid:
+        if not user.hwid or user.hwid == "UNKNOWN-HWID":
             user.hwid = req.hwid
             db.commit()
         elif user.hwid != req.hwid:
-            return {"access": False, "error": "Неверная привязка железа (HWID)"}
+            return {"access": False, "error": "Неверный HWID. Обратитесь к администратору для сброса"}
             
     return {
         "access": True, 
