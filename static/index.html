@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Heavy — Private Minecraft Software</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background: #10151c;
+      color: #f0f4f8;
+      overflow-x: hidden;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* Оптимизированные фоновые градиенты без просадок FPS */
+    .glass-glare {
+      position: fixed;
+      border-radius: 50%;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.35;
+      will-change: transform;
+    }
+
+    .glare-1 {
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.35) 0%, rgba(20, 27, 34, 0) 70%);
+      top: -100px;
+      left: -100px;
+      animation: floatLiquid1 12s ease-in-out infinite alternate;
+    }
+
+    .glare-2 {
+      width: 550px;
+      height: 550px;
+      background: radial-gradient(circle, rgba(139, 146, 154, 0.3) 0%, rgba(20, 27, 34, 0) 70%);
+      bottom: -100px;
+      right: -100px;
+      animation: floatLiquid2 14s ease-in-out infinite alternate;
+    }
+
+    @keyframes floatLiquid1 {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(80px, 50px) scale(1.1); }
+    }
+
+    @keyframes floatLiquid2 {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-60px, -40px) scale(1.08); }
+    }
+
+    #snow-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    header {
+      position: fixed;
+      top: 0;
+      width: 100%;
+      padding: 16px 50px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      z-index: 10;
+      background: rgba(16, 21, 28, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    }
+
+    .logo {
+      font-size: 1.3rem;
+      font-weight: 800;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: #ffffff;
+      justify-self: start;
+      text-shadow: 0 0 12px rgba(255, 255, 255, 0.7);
+    }
+
+    nav {
+      justify-self: center;
+      display: flex;
+      gap: 25px;
+    }
+
+    nav a {
+      color: #e2ebf3;
+      text-decoration: none;
+      font-size: 0.88rem;
+      opacity: 0.85;
+      transition: all 0.25s ease;
+    }
+
+    nav a:hover { 
+      opacity: 1; 
+      color: #ffffff;
+      transform: translateY(-2px);
+      text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+    }
+
+    .header-right {
+      justify-self: end;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Кнопки со стеклянным прозрачным белым свечением */
+    .btn-buy, .btn-register-nav {
+      position: relative;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      text-align: center;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: all 0.35s ease;
+      box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.2), 
+        inset 0 1px 2px rgba(255, 255, 255, 0.4),
+        0 0 10px rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-register-nav {
+      padding: 9px 22px;
+      font-size: 0.8rem;
+    }
+
+    .btn-buy {
+      width: 100%;
+      padding: 13px 0;
+      line-height: 1;
+    }
+
+    .btn-buy:hover, .btn-register-nav:hover {
+      background: rgba(255, 255, 255, 0.22);
+      border-color: rgba(255, 255, 255, 0.95);
+      transform: translateY(-2px);
+      box-shadow: 
+        0 0 25px rgba(255, 255, 255, 0.6),
+        0 0 50px rgba(255, 255, 255, 0.25),
+        inset 0 0 15px rgba(255, 255, 255, 0.5);
+      text-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
+    }
+
+    section {
+      position: relative;
+      z-index: 2;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 110px 20px 50px;
+    }
+
+    .section-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 4px;
+      color: #b0c6d9;
+      margin-bottom: 25px;
+      text-align: center;
+    }
+
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(25px);
+      -webkit-backdrop-filter: blur(25px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 26px;
+      padding: 45px 35px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+
+    .about-text {
+      font-size: 1.05rem;
+      font-weight: 300;
+      color: #e2ebf3;
+      margin-bottom: 25px;
+    }
+
+    .features-list {
+      list-style: none;
+      margin-top: 15px;
+    }
+
+    .features-list li {
+      margin-bottom: 16px;
+      font-size: 0.95rem;
+      font-weight: 300;
+      color: #cbdbe8;
+      padding-left: 25px;
+      position: relative;
+    }
+
+    .features-list li::before {
+      content: "•";
+      position: absolute;
+      left: 5px;
+      color: #ffffff;
+      font-size: 1.2rem;
+    }
+
+    .features-list strong {
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 22px;
+      margin-top: 15px;
+    }
+
+    .price-card {
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 22px;
+      padding: 30px 22px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.3s ease, border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .price-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(255, 255, 255, 0.55);
+      background: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.35), 0 0 20px rgba(255, 255, 255, 0.1);
+    }
+
+    .price-period {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+    }
+
+    .price-tag {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 8px;
+      text-shadow: 0 0 14px rgba(255, 255, 255, 0.6);
+    }
+
+    .price-subtitle {
+      font-size: 0.85rem;
+      font-weight: 300;
+      color: #aac2d6;
+      margin-bottom: 20px;
+      min-height: 35px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .video-showcase {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .live-glass-container {
+      width: 100%;
+      max-width: 860px;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: #0d131a;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .live-glass-container video {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 25px;
+    }
+
+    .media-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      border-radius: 22px;
+      padding: 35px 22px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      transition: transform 0.3s ease;
+      min-height: 340px;
+    }
+
+    .media-card:hover {
+      border-color: rgba(255, 255, 255, 0.45);
+      transform: translateY(-4px);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .gradient-title {
+      font-size: 1.7rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      text-align: center;
+      margin-bottom: 12px;
+      color: #ffffff;
+    }
+
+    .media-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .media-icon {
+      width: 50px;
+      height: 50px;
+      fill: #ffffff;
+    }
+
+    .discord-box {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .discord-title {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      margin-top: 12px;
+      color: #ffffff;
+    }
+
+    .discord-icon {
+      width: 60px;
+      height: 60px;
+      fill: #ffffff;
+      transition: transform 0.3s ease;
+    }
+
+    .discord-icon:hover {
+      transform: scale(1.1);
+    }
+
+    .support-box {
+      margin-top: 30px;
+      padding-top: 25px;
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+      text-align: center;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(8, 12, 16, 0.85);
+      backdrop-filter: blur(15px);
+      z-index: 100;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .modal-glass {
+      width: 90%;
+      max-width: 460px;
+      background: rgba(22, 29, 39, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 24px;
+      padding: 35px 30px;
+      position: relative;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+    }
+
+    .modal-overlay.active .modal-glass {
+      transform: scale(1);
+    }
+
+    .close-modal {
+      position: absolute;
+      top: 16px;
+      right: 20px;
+      background: transparent;
+      border: none;
+      color: #aac2d6;
+      font-size: 1.6rem;
+      cursor: pointer;
+    }
+
+    .close-modal:hover { color: #ffffff; }
+
+    .modal-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+      padding-bottom: 10px;
+    }
+
+    .modal-tab-btn {
+      background: transparent;
+      border: none;
+      color: #8fa7bc;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 8px;
+    }
+
+    .modal-tab-btn.active {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #aac2d6;
+      margin-bottom: 6px;
+    }
+
+    .glass-input, .glass-textarea {
+      width: 100%;
+      padding: 12px 15px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      color: #ffffff;
+      font-size: 0.92rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .glass-input:focus, .glass-textarea:focus {
+      border-color: rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .profile-info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 0.9rem;
+    }
+
+    .profile-info-row span:first-child { color: #8fa7bc; }
+    .profile-info-row span:last-child { color: #ffffff; font-weight: 600; }
+
+    footer {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      padding: 35px 20px;
+      font-size: 0.8rem;
+      color: #8fa7bc;
+      letter-spacing: 1px;
+    }
+
+    @media (max-width: 850px) {
+      header {
+        grid-template-columns: auto auto;
+        padding: 14px 20px;
+      }
+      nav { display: none; }
+      .media-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="glass-glare glare-1"></div>
+  <div class="glass-glare glare-2"></div>
+  <canvas id="snow-canvas"></canvas>
+
+  <header>
+    <div class="logo">HEAVY</div>
+    
+    <nav>
+      <a href="#about">О нас</a>
+      <a href="#buy">Купить</a>
+      <a href="#visuals">Визуал</a>
+      <a href="#media">Медиа</a>
+      <a href="#contacts">Контакты</a>
+    </nav>
+
+    <div class="header-right" id="headerAuth">
+      <button class="btn-register-nav" id="adminBtn" style="display: none;" onclick="openAdminModal()"><span>👑 Админ-панель</span></button>
+      <button class="btn-register-nav" onclick="openAuthModal('login')"><span>Войти</span></button>
+      <button class="btn-register-nav" onclick="openAuthModal('register')"><span>Регистрация</span></button>
+    </div>
+  </header>
+
+  <section id="about">
+    <div class="section-title">О нас</div>
+    <div class="glass-panel">
+      <p class="about-text">
+        Приватный софт <strong>Heavy</strong> создан специально для полного доминирования на серверах Minecraft. С Heavy вы получаете абсолютное преимущество над соперниками в любых PvP-режимах, будь то BedWars, SkyWars или Анархия.
+      </p>
+      <p class="about-text" style="margin-bottom: 10px;">
+        Наш функционал разработан для максимальной эффективности и идеального комфорта:
+      </p>
+      <ul class="features-list">
+        <li><strong>Совершенная боевая система:</strong> Умное автоприцеливание и молниеносная реакция помогают выходить победителем из самых сложных сражений.</li>
+        <li><strong>Абсолютная информированность:</strong> Полная видимость поля боя и подсвечивание оппонентов дают возможность всегда работать на опережение.</li>
+        <li><strong>Высочайшая адаптивность:</strong> Стабильная работа со всеми популярными защитными системами (NCP, AAC, Matrix и многими другими) обеспечивает плавный и уверенный игровой процесс.</li>
+      </ul>
+      <p class="about-text" style="margin-top: 25px; text-align: center; font-weight: 500; color: #ffffff;">
+        Захватывайте инициативу, доминируйте в каждом бою и становитесь сильнейшим вместе с Heavy!
+      </p>
+    </div>
+  </section>
+
+  <section id="buy">
+    <div class="section-title">Выберите подписку</div>
+    <div class="pricing-grid">
+      
+      <div class="price-card">
+        <div class="price-period">14 дней</div>
+        <div class="price-tag">100 ₽</div>
+        <div class="price-subtitle">классное решение</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75634649" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+      <div class="price-card">
+        <div class="price-period">30 дней</div>
+        <div class="price-tag">150 ₽</div>
+        <div class="price-subtitle">круто !такое выбирают</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75634993" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+      <div class="price-card">
+        <div class="price-period">60 дней</div>
+        <div class="price-tag">200 ₽</div>
+        <div class="price-subtitle">вау!отличный выбор</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75635590" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+      <div class="price-card">
+        <div class="price-period">90 дней</div>
+        <div class="price-tag">250 ₽</div>
+        <div class="price-subtitle">такое берут многие</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75635590" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+      <div class="price-card">
+        <div class="price-period">180 дней</div>
+        <div class="price-tag">300 ₽</div>
+        <div class="price-subtitle">супер,такой классный вкус</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75635720" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+      <div class="price-card">
+        <div class="price-period">Навсегда</div>
+        <div class="price-tag">350 ₽</div>
+        <div class="price-subtitle">топово,возьми,такое все любят</div>
+        <a class="btn-buy" href="https://funpay.com/lots/offer?id=75634317" target="_blank" rel="noopener noreferrer"><span>Купить</span></a>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="visuals">
+    <div class="section-title">Интерфейс и атмосфера</div>
+    <div class="glass-panel">
+      <div class="video-showcase">
+        <div class="live-glass-container">
+          <video autoplay loop muted playsinline>
+            <!-- <source src="liquid-glass.mp4" type="video/mp4"> (Временно отключено для предотвращения 404) -->
+          </video>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="media">
+    <div class="section-title">Медиа</div>
+    <div class="glass-panel">
+      <div class="media-grid">
+        
+        <div class="media-card">
+          <div class="gradient-title">НАШ ТИК ТОК</div>
+          <div class="media-body">
+            <svg class="media-icon" viewBox="0 0 24 24">
+              <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 1 1-5.2-1.74 2.89 2.89 0 0 1 2.31-1.42V8.98a6.34 6.34 0 1 0 6.34 6.34V9.32a8.28 8.28 0 0 0 4.77 1.48V7.35a4.85 4.85 0 0 1-1-.66z"/>
+            </svg>
+            <p style="font-size: 0.95rem; font-weight: 300; color: #cbdbe8; text-align: center;">Короткие клипы и нарезки моментов с софтом</p>
+          </div>
+          <a href="#" class="btn-buy" style="max-width: 200px;"><span>Смотреть TikTok</span></a>
+        </div>
+
+        <div class="media-card">
+          <div class="gradient-title">НАШ ЮТУБ</div>
+          <div class="media-body">
+            <svg class="media-icon" viewBox="0 0 24 24">
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+            <p style="font-size: 0.95rem; font-weight: 300; color: #cbdbe8; text-align: center;">Полноценные обзоры и геймплей Heavy</p>
+          </div>
+          <a href="#" class="btn-buy" style="max-width: 200px;"><span>Смотреть канал</span></a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section id="contacts">
+    <div class="section-title">Контакты и поддержка</div>
+    <div class="glass-panel">
+      <div class="discord-box">
+        <a href="https://discord.gg/wzDcmGGu7" target="_blank" class="discord-link">
+          <svg class="discord-icon" viewBox="0 0 127.14 96.36">
+            <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0,3.36,6.83A97.68,97.68,0,0,0,42.29,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1,10.85,5.18c-.91-.66-1.8-1.34-2.66-2a75.57,75.57,0,0,0,32.5,0c-.87.68-1.76,1.35-2.66,2a68.68,68.68,0,0,1,10.87-5.19,77,77,0,0,0,6.89,11.1,105.25,105.25,0,0,0,32.19-16.14c2.64-27.38-4.51-51.11-18.88-72.15ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,45.92,53.86,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,45.92,96.09,53,91.08,65.69,84.69,65.69Z"/>
+          </svg>
+        </a>
+        <div class="discord-title">ХОЧЕШЬ В НАШ ДИСКОРД?</div>
+      </div>
+
+      <div class="support-box">
+        <p style="font-size: 1.1rem; font-weight: 300; margin-bottom: 15px;">Остались вопросы?</p>
+        <button class="btn-buy" style="max-width: 200px; margin: 0 auto;" onclick="openSupport()"><span>Перейти</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Модалка Авторизации / Регистрации -->
+  <div class="modal-overlay" id="authModal">
+    <div class="modal-glass">
+      <button class="close-modal" onclick="closeAuthModal()">&times;</button>
+      <div class="modal-tabs">
+        <button class="modal-tab-btn active" id="tabLoginBtn" onclick="switchAuthTab('login')">Вход</button>
+        <button class="modal-tab-btn" id="tabRegisterBtn" onclick="switchAuthTab('register')">Регистрация</button>
+      </div>
+
+      <!-- Вход -->
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label>Логин или Email</label>
+          <input type="text" id="loginUser" class="glass-input" required placeholder="Введите логин или email">
+        </div>
+        <div class="form-group">
+          <label>Пароль</label>
+          <input type="password" id="loginPass" class="glass-input" required placeholder="••••••••">
+        </div>
+        <p id="loginError" style="color: #ff6b6b; font-size: 0.85rem; margin-bottom: 10px; display: none;"></p>
+        <button type="submit" class="btn-buy" style="margin-top: 10px;"><span>Войти</span></button>
+      </form>
+
+      <!-- Регистрация -->
+      <form id="registerForm" style="display: none;" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label>Логин</label>
+          <input type="text" id="regUser" class="glass-input" required placeholder="Придумайте логин">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="regEmail" class="glass-input" required placeholder="example@mail.com">
+        </div>
+        <div class="form-group">
+          <label>Пароль</label>
+          <input type="password" id="regPass" class="glass-input" required placeholder="••••••••">
+        </div>
+        <p id="regError" style="color: #ff6b6b; font-size: 0.85rem; margin-bottom: 10px; display: none;"></p>
+        <button type="submit" class="btn-buy" style="margin-top: 10px;"><span>Зарегистрироваться</span></button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Модалка Личного кабинета -->
+  <div class="modal-overlay" id="profileModal">
+    <div class="modal-glass">
+      <button class="close-modal" onclick="closeProfileModal()">&times;</button>
+      <h3 style="font-weight: 700; font-size: 1.4rem; margin-bottom: 20px; text-align: center;">Личный кабинет</h3>
+      
+      <div class="profile-info-row">
+        <span>Логин:</span>
+        <span id="profUsername">-</span>
+      </div>
+      <div class="profile-info-row">
+        <span>Email:</span>
+        <span id="profEmail">-</span>
+      </div>
+      <div class="profile-info-row">
+        <span>Подписка:</span>
+        <span id="profSub" style="color: #ffffff; text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);">Загрузка...</span>
+      </div>
+      <div class="profile-info-row">
+        <span>HWID:</span>
+        <span id="profHWID">-</span>
+      </div>
+
+      <!-- Блок активации ключа -->
+      <div class="activate-box" style="margin-top: 25px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.15);">
+        <h4 style="font-size: 0.85rem; color: #aac2d6; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px;">Активация ключа</h4>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <input type="text" id="promo-key-input" class="glass-input" placeholder="Введите ключ (XXXX-XXXX-XXXX-XXXX)">
+        </div>
+        <p id="activate-msg" class="status-msg" style="font-size: 0.85rem; margin-bottom: 10px; display: none;"></p>
+        <button id="activate-key-btn" class="btn-buy" style="padding: 10px 0; width: 100%;"><span>Активировать</span></button>
+      </div>
+
+      <button id="downloadLoaderBtn" class="btn-buy" style="margin-top: 20px;" onclick="downloadLoader()">
+        <span>Скачать лоадер</span>
+      </button>
+
+      <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.15);">
+        <button class="btn-buy" style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4);" onclick="handleLogout()">
+          <span>Выйти из аккаунта</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка Поддержки -->
+  <div class="modal-overlay" id="supportModal">
+    <div class="modal-glass">
+      <button class="close-modal" onclick="closeSupport()">&times;</button>
+      <h3 style="font-weight: 600; font-size: 1.4rem; margin-bottom: 20px; text-align: center;">Служба поддержки</h3>
+      <form onsubmit="event.preventDefault(); alert('Сообщение отправлено!'); closeSupport();">
+        <div class="form-group">
+          <label>Опишите ситуацию</label>
+          <textarea class="glass-textarea" required placeholder="Напишите вашу проблему..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Ваш Email для связи</label>
+          <input type="email" class="glass-input" required placeholder="example@mail.com">
+        </div>
+        <button type="submit" class="btn-buy" style="margin-top: 10px;"><span>Отправить</span></button>
+      </form>
+    </div>
+  </div>
+
+  <footer>
+    © 2026 HEAVY SOFTWARE. ALL RIGHTS RESERVED.
+  </footer>
+
+  <script>
+    /* Фоновые частицы */
+    const canvas = document.getElementById('snow-canvas');
+    const ctx = canvas.getContext('2d');
+    let width = canvas.width = window.innerWidth;
+    let height = canvas.height = window.innerHeight;
+
+    window.addEventListener('resize', () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    });
+
+    const numFlakes = 40;
+    const flakes = [];
+
+    for (let i = 0; i < numFlakes; i++) {
+      flakes.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        r: Math.random() * 1.6 + 0.6,
+        d: Math.random() * 0.5 + 0.3,
+        opacity: Math.random() * 0.5 + 0.2
+      });
+    }
+
+    function drawSnow() {
+      ctx.clearRect(0, 0, width, height);
+      for (let i = 0; i < numFlakes; i++) {
+        const f = flakes[i];
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${f.opacity})`;
+        ctx.fill();
+
+        f.y += f.d;
+        if (f.y > height) {
+          flakes[i] = { x: Math.random() * width, y: 0, r: f.r, d: f.d, opacity: f.opacity };
+        }
+      }
+      requestAnimationFrame(drawSnow);
+    }
+    drawSnow();
+
+    /* Авторизация и API */
+    let currentUser = null;
+
+    async function checkAuth() {
+      const token = localStorage.getItem('token');
+      const headerAuth = document.getElementById('headerAuth');
+      if (!token) {
+        headerAuth.innerHTML = `
+          <button class="btn-register-nav" onclick="openAuthModal('login')"><span>Войти</span></button>
+          <button class="btn-register-nav" onclick="openAuthModal('register')"><span>Регистрация</span></button>
+        `;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/user/me', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          currentUser = await res.json();
+          let adminBtnHTML = '';
+          if (currentUser.is_admin === 1) {
+            adminBtnHTML = `<button class="btn-register-nav" onclick="openAdminModal()" style="margin-right: 10px;"><span>👑 Админ-панель</span></button>`;
+          }
+          headerAuth.innerHTML = adminBtnHTML + `
+            <button class="btn-register-nav" onclick="openProfileModal()"><span>Профиль (${currentUser.username})</span></button>
+          `;
+        } else {
+          localStorage.removeItem('token');
+          checkAuth();
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    checkAuth();
+
+    function openAuthModal(tab = 'login') {
+      document.getElementById('authModal').classList.add('active');
+      switchAuthTab(tab);
+    }
+    function closeAuthModal() {
+      document.getElementById('authModal').classList.remove('active');
+    }
+
+    function switchAuthTab(tab) {
+      const loginForm = document.getElementById('loginForm');
+      const registerForm = document.getElementById('registerForm');
+      const tabLoginBtn = document.getElementById('tabLoginBtn');
+      const tabRegisterBtn = document.getElementById('tabRegisterBtn');
+
+      if (tab === 'login') {
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+        tabLoginBtn.classList.add('active');
+        tabRegisterBtn.classList.remove('active');
+      } else {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+        tabRegisterBtn.classList.add('active');
+        tabLoginBtn.classList.remove('active');
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const loginErr = document.getElementById('loginError');
+      loginErr.style.display = 'none';
+
+      const username = document.getElementById('loginUser').value;
+      const password = document.getElementById('loginPass').value;
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (res.ok && data.token) {
+          localStorage.setItem('token', data.token);
+          closeAuthModal();
+          checkAuth();
+        } else {
+          loginErr.textContent = data.detail || 'Неверный логин или пароль';
+          loginErr.style.display = 'block';
+        }
+      } catch (err) {
+        loginErr.textContent = 'Ошибка подключения к серверу';
+        loginErr.style.display = 'block';
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const regErr = document.getElementById('regError');
+      regErr.style.display = 'none';
+
+      const username = document.getElementById('regUser').value;
+      const email = document.getElementById('regEmail').value;
+      const password = document.getElementById('regPass').value;
+
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, password })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const loginRes = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+          const loginData = await loginRes.json();
+          if (loginData.token) {
+            localStorage.setItem('token', loginData.token);
+            closeAuthModal();
+            checkAuth();
+          }
+        } else {
+          regErr.textContent = data.detail || 'Ошибка регистрации';
+          regErr.style.display = 'block';
+        }
+      } catch (err) {
+        regErr.textContent = 'Ошибка подключения к серверу';
+        regErr.style.display = 'block';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const activateBtn = document.getElementById('activate-key-btn');
+      if (activateBtn) {
+        activateBtn.addEventListener('click', async () => {
+          const msgEl = document.getElementById('activate-msg');
+          msgEl.style.display = 'none';
+          
+          const keyVal = document.getElementById('promo-key-input').value;
+          const token = localStorage.getItem('token');
+          
+          if (!token) {
+            msgEl.textContent = 'Вы не авторизованы';
+            msgEl.style.color = '#ff6b6b';
+            msgEl.style.display = 'block';
+            return;
+          }
+          
+          try {
+            const res = await fetch('/api/user/activate-key', {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ key: keyVal })
+            });
+            const data = await res.json();
+            
+            if (res.ok && data.status === 'ok') {
+              msgEl.textContent = data.message;
+              msgEl.style.color = '#5cff8a';
+              msgEl.style.display = 'block';
+              document.getElementById('promo-key-input').value = '';
+              document.getElementById('profSub').textContent = data.subscription_end;
+              
+              if (currentUser) {
+                currentUser.subscription_end = data.subscription_end;
+              }
+            } else {
+              msgEl.textContent = data.detail || data.message || 'Ошибка активации';
+              msgEl.style.color = '#ff6b6b';
+              msgEl.style.display = 'block';
+            }
+          } catch (err) {
+            msgEl.textContent = 'Ошибка подключения к серверу';
+            msgEl.style.color = '#ff6b6b';
+            msgEl.style.display = 'block';
+          }
+        });
+      }
+    });
+
+    async function openProfileModal() {
+      if (!currentUser) return;
+      document.getElementById('profUsername').textContent = currentUser.username;
+      document.getElementById('profEmail').textContent = currentUser.email;
+      document.getElementById('profSub').textContent = currentUser.subscription_end || 'Нет активной подписки';
+      document.getElementById('profHWID').textContent = currentUser.hwid || 'Не привязан';
+      
+      const msgEl = document.getElementById('activate-msg');
+      if (msgEl) msgEl.style.display = 'none';
+      
+      document.getElementById('profileModal').classList.add('active');
+    }
+    
+    function closeProfileModal() {
+      document.getElementById('profileModal').classList.remove('active');
+    }
+
+    function handleLogout() {
+      localStorage.removeItem('token');
+      currentUser = null;
+      closeProfileModal();
+      checkAuth();
+    }
+
+    function handleBuy(tariff) {
+      // Перенаправление на страницу покупки лота FunPay
+      window.open('https://funpay.com/users/', '_blank');
+    }
+
+    async function downloadLoader() {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      window.location.href = `/api/loader/download?token=${token}`;
+    }
+
+    function openSupport() { document.getElementById('supportModal').classList.add('active'); }
+    function closeSupport() { document.getElementById('supportModal').classList.remove('active'); }
+  </script>
+
+  <!-- Admin Modal -->
+  <div class="modal-overlay" id="adminModal">
+    <div class="modal-glass" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
+      <button class="close-modal" onclick="closeAdminModal()">&times;</button>
+      <h2>Админ-панель</h2>
+      <table style="width: 100%; text-align: left; margin-top: 20px; border-collapse: collapse; font-size: 14px;">
+        <thead>
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">
+            <th>ID</th>
+            <th>Логин</th>
+            <th>Подписка</th>
+            <th>HWID</th>
+            <th>Статус</th>
+            <th>Действия</th>
+          </tr>
+        </thead>
+        <tbody id="adminUsersTableBody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function openAdminModal() {
+      document.getElementById('adminModal').classList.add('active');
+      loadAdminUsers();
+    }
+    
+    function closeAdminModal() {
+      document.getElementById('adminModal').classList.remove('active');
+    }
+
+    async function loadAdminUsers() {
+      const token = localStorage.getItem('token');
+      if(!token) return;
+      const res = await fetch('/api/admin/users', { headers: { 'Authorization': 'Bearer ' + token } });
+      if(!res.ok) return alert('Ошибка загрузки пользователей');
+      const users = await res.json();
+      
+      const tbody = document.getElementById('adminUsersTableBody');
+      tbody.innerHTML = '';
+      
+      users.forEach(u => {
+        const tr = document.createElement('tr');
+        tr.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+        
+        let actions = `
+          <button style="margin: 2px; font-size: 11px; padding: 5px;" onclick="adminBan(${u.id})">${u.is_banned ? 'Разбанить' : 'Забанить'}</button>
+          <button style="margin: 2px; font-size: 11px; padding: 5px;" onclick="adminResetHwid(${u.id})">Сброс HWID</button>
+          <button style="margin: 2px; font-size: 11px; padding: 5px;" onclick="adminBanHwid(${u.id})">${u.is_hwid_banned ? 'Разбан HWID' : 'Бан HWID'}</button>
+          <button style="margin: 2px; font-size: 11px; padding: 5px;" onclick="adminEditSub(${u.id})">Изменить подписку</button>
+        `;
+        
+        tr.innerHTML = `
+          <td style="padding: 8px;">${u.id}</td>
+          <td style="padding: 8px;">${u.username} ${u.is_admin ? '(Admin)' : ''}</td>
+          <td style="padding: 8px;">${u.subscription_end || 'Нет'}</td>
+          <td style="padding: 8px; font-size: 10px; max-width: 100px; overflow: hidden; text-overflow: ellipsis;">${u.hwid || 'Нет'}</td>
+          <td style="padding: 8px; color: ${u.is_banned || u.is_hwid_banned ? 'red' : 'green'}">
+            ${u.is_banned ? 'BANNED ' : ''}${u.is_hwid_banned ? 'HWID_BANNED' : (u.is_banned ? '' : 'OK')}
+          </td>
+          <td style="padding: 8px; display: flex; flex-wrap: wrap; gap: 4px;">${actions}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function adminAction(url, body) {
+      const token = localStorage.getItem('token');
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify(body)
+      });
+      if(res.ok) { loadAdminUsers(); }
+      else { alert('Ошибка действия'); }
+    }
+
+    function adminBan(id) { adminAction('/api/admin/ban', { user_id: id }); }
+    function adminResetHwid(id) { adminAction('/api/admin/reset-hwid', { user_id: id }); }
+    function adminBanHwid(id) { adminAction('/api/admin/ban-hwid', { user_id: id }); }
+    
+    function adminEditSub(id) {
+      const newDate = prompt('Введите новую дату (Формат: DD.MM.YYYY HH:MM) или "Навсегда". Оставьте пустым для сброса:', '');
+      if (newDate === null) return;
+      const sub = newDate.trim() === '' ? 'Нет активной подписки' : newDate.trim();
+      adminAction('/api/admin/edit-sub', { user_id: id, subscription_end: sub });
+    }
+  </script>
+</body>
+</html>
