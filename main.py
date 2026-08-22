@@ -2,11 +2,12 @@ import os
 import hashlib
 import jwt
 import sqlite3
+import secrets
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Header, Query
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,8 +15,12 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+
 load_dotenv()
 JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-key-123")
+OTT_SECRET = os.getenv("OTT_SECRET", "super-secret-ott-123")
 
 # --- RAW SQLITE MIGRATION ---
 def migrate_db():
@@ -147,11 +152,9 @@ def add_days_to_sub(current_sub, days_to_add):
         new_date = now + timedelta(days=days_to_add)
     else:
         try:
-            # Пытаемся распарсить как новый формат YYYY-MM-DD HH:MM
             parsed_date = datetime.strptime(current_sub, "%Y-%m-%d %H:%M")
         except ValueError:
             try:
-                # Fallback для старого формата
                 parsed_date = datetime.strptime(current_sub, "%d.%m.%Y %H:%M")
             except ValueError:
                 parsed_date = now - timedelta(days=1)
@@ -217,7 +220,6 @@ def web_login(req: LoginRequest, db: Session = Depends(get_db)):
         
     return {"status": "success", "token": create_jwt(user.id)}
 
-# Make /api/user/me accept both GET and POST to prevent 405 just in case
 @app.api_route("/api/user/me", methods=["GET", "POST"])
 def web_me(user: User = Depends(get_current_user)):
     return {
@@ -232,7 +234,6 @@ def web_me(user: User = Depends(get_current_user)):
         "is_hwid_banned": user.is_hwid_banned
     }
 
-# --- KEY ACTIVATION (WEB) ---
 class ActivateKeyRequest(BaseModel):
     key: str
 
@@ -263,8 +264,6 @@ def activate_key_web(req: ActivateKeyRequest, user: User = Depends(get_current_u
     
     return {"status": "ok", "message": "Подписка успешно активирована!", "subscription_end": new_sub_end}
 
-
-# --- LOADER REGISTRATION ---
 class LoaderRegRequest(BaseModel):
     username: str
     email: str
@@ -296,7 +295,6 @@ def loader_reg(req: LoaderRegRequest, db: Session = Depends(get_db)):
         print(f"[ERROR LOADER REGISTER] {e}")
         return {"success": False, "message": "Внутренняя ошибка сервера"}
 
-# --- LOADER KEY ACTIVATION ---
 class LoaderActivateRequest(BaseModel):
     username: str
     password: str
@@ -333,7 +331,6 @@ def loader_activate(req: LoaderActivateRequest, db: Session = Depends(get_db)):
     
     return {"success": True, "subscription_end": new_sub_end, "message": "Подписка успешно активирована!"}
 
-# --- ADMIN API ---
 def get_current_admin(authorization: str = Header(None), db: Session = Depends(get_db)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -395,7 +392,6 @@ def admin_edit_sub(req: AdminEditSubRequest, admin: User = Depends(get_current_a
         return {"success": True}
     raise HTTPException(status_code=404)
 
-# --- LOADER AUTH ---
 class LoaderAuthRequest(BaseModel):
     username: str
     password: str
@@ -439,6 +435,9 @@ def loader_auth(req: LoaderAuthRequest, db: Session = Depends(get_db)):
         "access": True, 
         "username": user.username, 
         "subscription_end": user.subscription_end, 
+        "subscription_expires": user.subscription_end,
+        "role": "admin" if user.is_admin == 1 else "user",
+        "is_admin": user.is_admin == 1,
         "message": "Авторизация успешна"
     }
 
@@ -455,8 +454,8 @@ def loader_check_sub(request: Request, req: CheckSubRequest = None, db: Session 
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
         try:
-            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            user_id = payload.get("sub")
+            payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            user_id = payload.get("user_id")
             user = db.query(User).filter(User.id == user_id).first()
         except Exception:
             pass
@@ -467,22 +466,20 @@ def loader_check_sub(request: Request, req: CheckSubRequest = None, db: Session 
             user = None
             
     if not user:
-        return {"access": False, "error": "Не удалось авторизоваться (неверные данные или токен)"}
+        return {"access": False, "error": "Не удалось авторизоваться"}
         
     if user.is_banned == 1 or user.is_hwid_banned == 1:
         return {"access": False, "error": "Доступ заблокирован администратором"}
         
     sub = user.subscription_end
     if not sub or sub == "Нет активной подписки" or sub == "Заблокирован":
-        return {"access": False, "error": "У вас сейчас нет активной подписки (или аккаунт заблокирован)"}
+        return {"access": False, "error": "У вас сейчас нет активной подписки"}
 
-    # Жесткая проверка HWID
     if req and req.hwid:
         if not user.hwid:
             user.hwid = req.hwid
             db.commit()
         elif user.hwid != req.hwid:
-            # Наказание: обнуляем подписку и блокируем
             user.subscription_end = "Заблокирован"
             db.commit()
             return {"access": False, "error": "Аккаунт заблокирован навсегда за передачу данных (Неверный HWID)!"}
@@ -503,8 +500,6 @@ def loader_check_sub(request: Request, req: CheckSubRequest = None, db: Session 
     except ValueError:
         return {"access": False, "error": "У вас сейчас нет активной подписки"}
 
-
-# --- LOADER DOWNLOAD (WEB) ---
 @app.get("/api/loader/download")
 def download_loader(token: str = Query(None), authorization: str = Header(None), db: Session = Depends(get_db)):
     actual_token = token
@@ -537,11 +532,96 @@ def download_loader(token: str = Query(None), authorization: str = Header(None),
     if not is_sub_active:
         raise HTTPException(status_code=403, detail="Доступно только после активации подписки")
         
-    # Прямая ссылка на Dropbox для лоадера.
-    # Обрати внимание: dl=1 в конце заставляет браузер скачивать файл моментально,
-    # не показывая страницу Dropbox.
     dropbox_url = "https://www.dropbox.com/s/ТВОЯ_ССЫЛКА_ТУТ/HeavyLoader.exe?dl=1"
     return RedirectResponse(url=dropbox_url)
+
+# --- ONE-TIME TOKEN & SECURE PAYLOAD DELIVERY ---
+class LaunchTokenRequest(BaseModel):
+    username: str
+    password: str
+    hwid: str
+
+@app.post("/api/loader/generate-launch-token")
+def generate_launch_token(req: LaunchTokenRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == req.username).first()
+    if not user or not check_password_hash(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    if user.is_banned == 1 or user.is_hwid_banned == 1:
+        raise HTTPException(status_code=403, detail="Account banned")
+        
+    if not req.hwid:
+        raise HTTPException(status_code=400, detail="HWID required")
+        
+    if not user.hwid:
+        user.hwid = req.hwid
+        db.commit()
+    elif user.hwid != req.hwid:
+        raise HTTPException(status_code=403, detail="HWID mismatch. Contact support.")
+        
+    sub = user.subscription_end
+    if not sub or sub == "Нет активной подписки" or sub == "Заблокирован":
+        raise HTTPException(status_code=403, detail="No active subscription")
+        
+    if sub not in ["Навсегда", "Навсегда (Forever)"]:
+        try:
+            try:
+                parsed_date = datetime.strptime(sub, "%Y-%m-%d %H:%M")
+            except ValueError:
+                parsed_date = datetime.strptime(sub, "%d.%m.%Y %H:%M")
+            if parsed_date < datetime.utcnow():
+                raise HTTPException(status_code=403, detail="Subscription expired")
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Invalid subscription format")
+            
+    aes_key = secrets.token_hex(32)
+    aes_iv = secrets.token_hex(16)
+    
+    ott_payload = {
+        "user_id": user.id,
+        "hwid": req.hwid,
+        "aes_key": aes_key,
+        "aes_iv": aes_iv,
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=60)
+    }
+    ott = jwt.encode(ott_payload, OTT_SECRET, algorithm="HS256")
+    
+    return {
+        "success": True,
+        "ott": ott,
+        "aes_key": aes_key,
+        "aes_iv": aes_iv
+    }
+
+@app.get("/api/loader/download-payload")
+def download_payload(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing OTT")
+        
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, OTT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="OTT expired. Please request a new one.")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid OTT")
+        
+    key = bytes.fromhex(payload["aes_key"])
+    iv = bytes.fromhex(payload["aes_iv"])
+    
+    file_path = os.path.join("payloads", "wyvern.jar")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Payload not found on server")
+        
+    def encrypt_generator():
+        cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
+        encryptor = cipher.encryptor()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(65536):
+                yield encryptor.update(chunk)
+        yield encryptor.finalize()
+        
+    return StreamingResponse(encrypt_generator(), media_type="application/octet-stream")
 
 if __name__ == "__main__":
     import uvicorn
