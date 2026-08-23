@@ -18,6 +18,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
+
 load_dotenv()
 JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-key-123")
 OTT_SECRET = os.getenv("OTT_SECRET", "super-secret-ott-123")
@@ -26,32 +27,22 @@ OTT_SECRET = os.getenv("OTT_SECRET", "super-secret-ott-123")
 def migrate_db():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    columns_to_add = [
-        ("email", "TEXT"),
-        ("hwid", "TEXT"),
-        ("subscription_end", "TEXT DEFAULT 'Нет активной подписки'"),
-        ("avatar_url", "TEXT"),
-        ("is_admin", "INTEGER DEFAULT 0"),
-        ("is_banned", "INTEGER DEFAULT 0"),
-        ("is_hwid_banned", "INTEGER DEFAULT 0")
-    ]
-    for col_name, col_type in columns_to_add:
-        try:
-            cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-        except Exception:
-            pass
-            
-    try:
-        cursor.execute("UPDATE users SET subscription_end = 'Нет активной подписки' WHERE subscription_end IS NULL")
-    except Exception:
-        pass
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [col[1] for col in cursor.fetchall()]
+    
+    if "hwid" not in columns:
+        print("Migrating DB: adding hwid column...")
+        cursor.execute("ALTER TABLE users ADD COLUMN hwid VARCHAR DEFAULT NULL")
+    if "is_hwid_banned" not in columns:
+        print("Migrating DB: adding is_hwid_banned column...")
+        cursor.execute("ALTER TABLE users ADD COLUMN is_hwid_banned INTEGER DEFAULT 0")
         
     conn.commit()
     conn.close()
 
 migrate_db()
-# ----------------------------
 
+# --- SQLALCHEMY SETUP ---
 DATABASE_URL = "sqlite:///./database.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -63,36 +54,32 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
     password_hash = Column(String)
-    hwid = Column(String, nullable=True)
     subscription_end = Column(String, default="Нет активной подписки")
-    avatar_url = Column(String, nullable=True)
+    hwid = Column(String, default=None)
     is_admin = Column(Integer, default=0)
     is_banned = Column(Integer, default=0)
     is_hwid_banned = Column(Integer, default=0)
 
-class PromoKey(Base):
-    __tablename__ = "promo_keys"
+class Key(Base):
+    __tablename__ = "keys"
     id = Column(Integer, primary_key=True, index=True)
-    key_code = Column(String, unique=True, index=True)
-    tariff = Column(String)
-    days = Column(Integer)
+    key_string = Column(String, unique=True, index=True)
+    duration_days = Column(Integer)
     is_used = Column(Integer, default=0)
-    used_by = Column(String, nullable=True)
-    used_at = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 
+# Admin Init
 def init_admin():
     db = SessionLocal()
-    admin = db.query(User).filter(User.username == "heaavya").first()
+    admin = db.query(User).filter(User.username == "admin").first()
     if not admin:
-        pw_hash = hashlib.sha256("heavy36fh4567788".encode('utf-8')).hexdigest()
         new_admin = User(
-            username="heaavya",
-            email="admin@heavyclient.onrender.com",
-            password_hash=pw_hash,
-            is_admin=1,
-            subscription_end="Навсегда"
+            username="admin",
+            email="admin@heavyclient.com",
+            password_hash=hashlib.sha256("admin_password_123".encode()).hexdigest(),
+            subscription_end="Навсегда",
+            is_admin=1
         )
         db.add(new_admin)
         db.commit()
@@ -100,14 +87,7 @@ def init_admin():
 
 init_admin()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-app = FastAPI(title="Heavy Software Backend")
+app = FastAPI(title="Heavy Client Auth Server")
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,16 +97,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.get("/")
 async def read_root():
     return FileResponse("static/index.html")
 
 def create_jwt(user_id: int):
     payload = {
         "user_id": user_id,
-        "exp": datetime.now(timezone.utc) + timedelta(days=7)
+        "exp": datetime.utcnow() + timedelta(days=7)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
@@ -136,7 +123,8 @@ def get_current_user(authorization: str = Header(None), db: Session = Depends(ge
     token = authorization.split(" ")[1]
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        user = db.query(User).filter(User.id == payload.get("user_id")).first()
+        user_id = payload.get("user_id")
+        user = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         return user
@@ -144,33 +132,33 @@ def get_current_user(authorization: str = Header(None), db: Session = Depends(ge
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def add_days_to_sub(current_sub, days_to_add):
-    if current_sub == "Навсегда (Forever)" or current_sub == "Навсегда":
-        return "Навсегда (Forever)"
-    
-    now = datetime.utcnow()
-    if not current_sub or current_sub == "Нет активной подписки":
-        new_date = now + timedelta(days=days_to_add)
-    else:
+    if current_sub == "Навсегда (Forever)" or current_sub == "Навсегда" or days_to_add >= 999:
+        return "Навсегда"
+        
+    try:
         try:
             parsed_date = datetime.strptime(current_sub, "%Y-%m-%d %H:%M")
         except ValueError:
-            try:
-                parsed_date = datetime.strptime(current_sub, "%d.%m.%Y %H:%M")
-            except ValueError:
-                parsed_date = now - timedelta(days=1)
-                
-        if parsed_date > now:
-            new_date = parsed_date + timedelta(days=days_to_add)
-        else:
-            new_date = now + timedelta(days=days_to_add)
-    
+            parsed_date = datetime.strptime(current_sub, "%d.%m.%Y %H:%M")
+            
+        if parsed_date < datetime.utcnow():
+            parsed_date = datetime.utcnow()
+    except (ValueError, TypeError):
+        parsed_date = datetime.utcnow()
+        
+    new_date = parsed_date + timedelta(days=days_to_add)
     return new_date.strftime("%Y-%m-%d %H:%M")
 
 def check_password_hash(req_password: str, db_hash: str) -> bool:
-    hashed = hashlib.sha256(req_password.encode('utf-8')).hexdigest()
-    return db_hash == hashed
+    if not req_password or not db_hash:
+        return False
+    if len(db_hash) == 32: 
+        return hashlib.md5(req_password.encode()).hexdigest() == db_hash
+    elif len(db_hash) == 64:
+        return hashlib.sha256(req_password.encode()).hexdigest() == db_hash
+    return False
 
-# --- WEB AUTH ENDPOINTS ---
+# --- WEB API (React Panel) ---
 class RegisterRequest(BaseModel):
     username: str
     email: str
@@ -178,29 +166,22 @@ class RegisterRequest(BaseModel):
 
 @app.post("/api/register")
 def web_register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if not req.username or not req.email or not req.password:
-        raise HTTPException(status_code=400, detail="Заполните все поля")
-    
-    try:
-        existing = db.query(User).filter((User.username == req.username) | (User.email == req.email)).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Логин или Email уже занят")
+    if db.query(User).filter(User.username == req.username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+    if db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=400, detail="Email already taken")
         
-        hashed = hashlib.sha256(req.password.encode('utf-8')).hexdigest()
-        new_user = User(
-            username=req.username, 
-            email=req.email, 
-            password_hash=hashed, 
-            subscription_end="Нет активной подписки"
-        )
-        db.add(new_user)
-        db.commit()
-        return {"status": "ok", "message": "Регистрация успешна!"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[ERROR REGISTER] {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    new_user = User(
+        username=req.username,
+        email=req.email,
+        password_hash=hashlib.sha256(req.password.encode()).hexdigest()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    token = create_jwt(new_user.id)
+    return {"message": "Registration successful", "token": token}
 
 class LoginRequest(BaseModel):
     username: str
@@ -208,30 +189,26 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/login")
 def web_login(req: LoginRequest, db: Session = Depends(get_db)):
-    if not req.username or not req.password:
-        raise HTTPException(status_code=400, detail="Заполните все поля")
+    user = db.query(User).filter(User.username == req.username).first()
+    if not user or not check_password_hash(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
         
-    user = db.query(User).filter((User.username == req.username) | (User.email == req.username)).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+    if user.is_banned == 1:
+        raise HTTPException(status_code=403, detail="Account is banned")
         
-    if not check_password_hash(req.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
-        
-    return {"status": "success", "token": create_jwt(user.id)}
+    token = create_jwt(user.id)
+    return {"message": "Login successful", "token": token, "is_admin": user.is_admin == 1}
 
-@app.api_route("/api/user/me", methods=["GET", "POST"])
+@app.get("/api/user/me")
 def web_me(user: User = Depends(get_current_user)):
     return {
         "id": user.id,
         "username": user.username,
         "email": user.email,
-        "hwid": user.hwid,
         "subscription_end": user.subscription_end,
-        "avatar_url": user.avatar_url,
-        "is_admin": user.is_admin,
-        "is_banned": user.is_banned,
-        "is_hwid_banned": user.is_hwid_banned
+        "is_admin": user.is_admin == 1,
+        "is_banned": user.is_banned == 1,
+        "hwid": user.hwid
     }
 
 class ActivateKeyRequest(BaseModel):
@@ -239,61 +216,42 @@ class ActivateKeyRequest(BaseModel):
 
 @app.post("/api/user/activate-key")
 def activate_key_web(req: ActivateKeyRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    key_code = req.key.strip().upper()
-    if not key_code:
-        raise HTTPException(status_code=400, detail="Ключ не может быть пустым")
-        
-    promo = db.query(PromoKey).filter(PromoKey.key_code == key_code).first()
-    if not promo:
-        raise HTTPException(status_code=404, detail="Неверный ключ активации")
+    key_obj = db.query(Key).filter(Key.key_string == req.key).first()
     
-    if promo.is_used == 1:
-        raise HTTPException(status_code=400, detail="Этот ключ уже был активирован")
+    if not key_obj:
+        raise HTTPException(status_code=400, detail="Invalid key")
+    if key_obj.is_used == 1:
+        raise HTTPException(status_code=400, detail="Key already used")
         
-    if promo.days == -1 or promo.tariff == "forever":
-        new_sub_end = "Навсегда (Forever)"
-    else:
-        new_sub_end = add_days_to_sub(user.subscription_end, promo.days)
-        
-    promo.is_used = 1
-    promo.used_by = user.username
-    promo.used_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    user.subscription_end = add_days_to_sub(user.subscription_end, key_obj.duration_days)
+    key_obj.is_used = 1
     
-    user.subscription_end = new_sub_end
     db.commit()
-    
-    return {"status": "ok", "message": "Подписка успешно активирована!", "subscription_end": new_sub_end}
+    return {"message": "Key activated successfully", "new_sub": user.subscription_end}
 
+# --- LOADER API ---
 class LoaderRegRequest(BaseModel):
     username: str
     email: str
     password: str
-    hwid: str = None
-    
+    hwid: str
+
 @app.post("/api/loader/register")
 def loader_reg(req: LoaderRegRequest, db: Session = Depends(get_db)):
-    if not req.username or not req.email or not req.password:
-        return {"success": False, "message": "Заполните все поля"}
+    if db.query(User).filter(User.username == req.username).first():
+        return {"success": False, "error": "Пользователь с таким именем уже существует!"}
+    if db.query(User).filter(User.email == req.email).first():
+        return {"success": False, "error": "Этот E-mail уже используется!"}
         
-    try:
-        existing = db.query(User).filter((User.username == req.username) | (User.email == req.email)).first()
-        if existing:
-            return {"success": False, "message": "Логин или email уже заняты"}
-            
-        hashed = hashlib.sha256(req.password.encode('utf-8')).hexdigest()
-        new_user = User(
-            username=req.username, 
-            email=req.email, 
-            password_hash=hashed, 
-            hwid=req.hwid,
-            subscription_end="Нет активной подписки"
-        )
-        db.add(new_user)
-        db.commit()
-        return {"success": True, "message": "Регистрация успешна! Теперь вы можете войти."}
-    except Exception as e:
-        print(f"[ERROR LOADER REGISTER] {e}")
-        return {"success": False, "message": "Внутренняя ошибка сервера"}
+    new_user = User(
+        username=req.username,
+        email=req.email,
+        password_hash=hashlib.sha256(req.password.encode()).hexdigest(),
+        hwid=req.hwid
+    )
+    db.add(new_user)
+    db.commit()
+    return {"success": True, "message": "Регистрация прошла успешно!"}
 
 class LoaderActivateRequest(BaseModel):
     username: str
@@ -303,81 +261,64 @@ class LoaderActivateRequest(BaseModel):
 @app.post("/api/loader/activate-key")
 def loader_activate(req: LoaderActivateRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
-    if not user:
-        return {"success": False, "message": "Неверный логин или пароль"}
+    if not user or not check_password_hash(req.password, user.password_hash):
+        return {"success": False, "error": "Неверный логин или пароль!"}
         
-    if not check_password_hash(req.password, user.password_hash):
-        return {"success": False, "message": "Неверный логин или пароль"}
+    key_obj = db.query(Key).filter(Key.key_string == req.key).first()
+    if not key_obj:
+        return {"success": False, "error": "Ключ не найден или не существует!"}
+    if key_obj.is_used == 1:
+        return {"success": False, "error": "Этот ключ уже был активирован!"}
         
-    key_code = req.key.strip()
-    promo = db.query(PromoKey).filter(PromoKey.key_code == key_code).first()
-    if not promo:
-        return {"success": False, "message": "Неверный код активации"}
-        
-    if promo.is_used == 1:
-        return {"success": False, "message": "Этот ключ уже был активирован"}
-        
-    if promo.days >= 9999 or promo.tariff == "forever":
-        new_sub_end = "Навсегда"
-    else:
-        new_sub_end = add_days_to_sub(user.subscription_end, promo.days)
-        
-    promo.is_used = 1
-    promo.used_by = user.username
-    promo.used_at = datetime.utcnow().strftime("%d.%m.%Y %H:%M")
-    
-    user.subscription_end = new_sub_end
+    user.subscription_end = add_days_to_sub(user.subscription_end, key_obj.duration_days)
+    key_obj.is_used = 1
     db.commit()
     
-    return {"success": True, "subscription_end": new_sub_end, "message": "Подписка успешно активирована!"}
+    return {"success": True, "message": "Подписка успешно продлена!", "new_sub": user.subscription_end}
 
+# --- ADMIN API ---
 def get_current_admin(authorization: str = Header(None), db: Session = Depends(get_db)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    token = authorization.split(" ")[1]
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        user = db.query(User).filter(User.id == payload.get("user_id")).first()
-        if not user or user.is_admin != 1:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return user
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-@app.get("/api/admin/users")
-def admin_get_users(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    return [{"id": u.id, "username": u.username, "email": u.email, "subscription_end": u.subscription_end, "hwid": u.hwid, "is_banned": u.is_banned, "is_hwid_banned": u.is_hwid_banned, "is_admin": u.is_admin} for u in users]
+    user = get_current_user(authorization, db)
+    if user.is_admin != 1:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return user
 
 class AdminActionRequest(BaseModel):
     user_id: int
 
+@app.get("/api/admin/users")
+def admin_get_users(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return [{
+        "id": u.id, "username": u.username, "email": u.email, 
+        "subscription_end": u.subscription_end, "hwid": u.hwid,
+        "is_admin": u.is_admin == 1, "is_banned": u.is_banned == 1,
+        "is_hwid_banned": u.is_hwid_banned == 1
+    } for u in users]
+
 @app.post("/api/admin/ban")
 def admin_ban_user(req: AdminActionRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == req.user_id).first()
-    if user:
-        user.is_banned = 1 if user.is_banned == 0 else 0
-        db.commit()
-        return {"success": True, "is_banned": user.is_banned}
-    raise HTTPException(status_code=404)
+    if not user: raise HTTPException(status_code=404)
+    user.is_banned = 1 if user.is_banned == 0 else 0
+    db.commit()
+    return {"message": "Ban status toggled"}
 
 @app.post("/api/admin/reset-hwid")
 def admin_reset_hwid(req: AdminActionRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == req.user_id).first()
-    if user:
-        user.hwid = None
-        db.commit()
-        return {"success": True}
-    raise HTTPException(status_code=404)
+    if not user: raise HTTPException(status_code=404)
+    user.hwid = None
+    db.commit()
+    return {"message": "HWID reset successfully"}
 
 @app.post("/api/admin/ban-hwid")
 def admin_ban_hwid(req: AdminActionRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == req.user_id).first()
-    if user:
-        user.is_hwid_banned = 1 if user.is_hwid_banned == 0 else 0
-        db.commit()
-        return {"success": True, "is_hwid_banned": user.is_hwid_banned}
-    raise HTTPException(status_code=404)
+    if not user: raise HTTPException(status_code=404)
+    user.is_hwid_banned = 1 if user.is_hwid_banned == 0 else 0
+    db.commit()
+    return {"message": "HWID ban toggled"}
 
 class AdminEditSubRequest(BaseModel):
     user_id: int
@@ -386,50 +327,33 @@ class AdminEditSubRequest(BaseModel):
 @app.post("/api/admin/edit-sub")
 def admin_edit_sub(req: AdminEditSubRequest, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == req.user_id).first()
-    if user:
-        user.subscription_end = req.subscription_end
-        db.commit()
-        return {"success": True}
-    raise HTTPException(status_code=404)
+    if not user: raise HTTPException(status_code=404)
+    user.subscription_end = req.subscription_end
+    db.commit()
+    return {"message": "Subscription updated"}
 
+# --- V1 LOADER COMPATIBILITY (If Needed) ---
 class LoaderAuthRequest(BaseModel):
     username: str
     password: str
-    hwid: str = None
+    hwid: str
 
 @app.post("/api/loader/auth")
 def loader_auth(req: LoaderAuthRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
-    if not user:
-        return {"access": False, "error": "Неверный логин или пароль"}
-        
-    if not check_password_hash(req.password, user.password_hash):
+    
+    if not user or not check_password_hash(req.password, user.password_hash):
         return {"access": False, "error": "Неверный логин или пароль"}
         
     if user.is_banned == 1 or user.is_hwid_banned == 1:
-        return {"access": False, "error": "Доступ заблокирован администратором"}
-        
-    sub = user.subscription_end
-    if not sub or sub == "Нет активной подписки":
-        return {"access": False, "error": "Нет активной подписки"}
-        
-    if sub != "Навсегда" and sub != "Навсегда (Forever)":
-        try:
-            try:
-                parsed_date = datetime.strptime(sub, "%Y-%m-%d %H:%M")
-            except ValueError:
-                parsed_date = datetime.strptime(sub, "%d.%m.%Y %H:%M")
-            if parsed_date < datetime.utcnow():
-                return {"access": False, "error": "Подписка истекла"}
-        except ValueError:
-            return {"access": False, "error": "Ошибка формата подписки"}
-            
+        return {"access": False, "error": "Аккаунт заблокирован"}
+
     if req.hwid:
         if not user.hwid or user.hwid == "UNKNOWN-HWID":
             user.hwid = req.hwid
             db.commit()
         elif user.hwid != req.hwid:
-            return {"access": False, "error": "Неверный HWID. Обратитесь к администратору для сброса"}
+            return {"access": False, "error": "HWID не совпадает. Обратитесь в поддержку."}
             
     return {
         "access": True, 
